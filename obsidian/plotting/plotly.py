@@ -542,6 +542,10 @@ def optim_progress(campaign: Campaign,
             response_ids = (0)
     if isinstance(response_ids, int):
         response_ids = (response_ids,)
+        
+    for id in response_ids:
+        if id >= len(campaign.out.columns):
+            raise ValueError(f'Response ID {id} is out of range')
 
     # Extract input and output names
     out_names = []
@@ -549,9 +553,6 @@ def optim_progress(campaign: Campaign,
         out_names.append(campaign.out.columns[id])
     X_names = list(campaign.X.columns)
 
-    for id in response_ids:
-        if id >= len(out_names):
-            raise ValueError(f'Response ID {id} is out of range')
     if isinstance(color_feature_id, int):
         if color_feature_id >= len(campaign.X_space):
             raise ValueError(f'Color feature ID {color_feature_id} is out of range')
