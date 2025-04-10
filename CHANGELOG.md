@@ -1,9 +1,13 @@
 # Changelog
 
 ## [Untracked Changes]
+
+### Added
+- Factor plots can take objectives
+
 ### Modified
 - Bugfix for correlation plot respecting minimized targets
-
+- Improvements to objective visualization
 
 ## [0.8.6]
 ### Added

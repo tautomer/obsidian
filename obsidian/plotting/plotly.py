@@ -4,6 +4,7 @@ from obsidian.campaign import Campaign
 from obsidian.optimizer import Optimizer
 from obsidian.exceptions import UnfitError, UnsupportedError
 from obsidian.parameters import Param_Continuous
+from obsidian.objectives import Objective
 from .branding import obsidian_colors
 from obsidian.plotting.branding import obsidian_color_list as colors
 
@@ -259,6 +260,7 @@ def factor_plot(optimizer: Optimizer,
                 feature_id: int = 0,
                 response_id: int = 0,
                 f_transform: bool = False,
+                objective: Objective | None = None,
                 X_ref: pd.DataFrame | None = None, plotRef: bool = True,
                 ylim: tuple[float, float] | None = None) -> Figure:
     """
@@ -295,8 +297,7 @@ def factor_plot(optimizer: Optimizer,
         raise UnfitError('Optimizer must be fit before plotting predictions')
     if feature_id >= len(optimizer.X_space):
         raise ValueError('feature_id must be a valid feature index')
-    if response_id < 0 or response_id >= len(optimizer.target):
-        raise ValueError('response_id must be a valid response index')
+
 
     # Create a dataframe of test samples for plotting
     n_samples = 100
@@ -314,37 +315,61 @@ def factor_plot(optimizer: Optimizer,
     X_test[X_name] = param_i.unit_demap(unit_span)
     X = X_test[X_name].values
     
-    Y_pred = optimizer.predict(X_test, return_f_inv=not f_transform, PI_range=0.95)
-    y_name = optimizer.y_names[response_id]
-
-    Y_mu = Y_pred[y_name+('_t (pred)' if f_transform else ' (pred)')].values
-    LCB = Y_pred[y_name+('_t lb' if f_transform else ' lb')].values
-    UCB = Y_pred[y_name+('_t ub' if f_transform else ' ub')].values
-        
     fig = go.Figure()
-
-    fig.add_trace(go.Scatter(x=np.append(X, X[::-1]), y=np.append(UCB, LCB[::-1]),
-                             fill='toself',
-                             opacity=0.3,
-                             line={'color': obsidian_colors.teal},
-                             showlegend=True,
-                             name='95% Pred Band'),
-                  )
     
-    fig.add_trace(go.Scatter(x=X, y=Y_mu,
-                             mode='lines',
-                             line={'color': obsidian_colors.teal},
-                             name='Mean'),
-                  )
+    if objective:
+        obj = optimizer.evaluate(X_test, objective=objective)
+        obj = obj[[col for col in obj.columns if "Objective" in col]]
+    
+        if response_id < 0 or response_id >= len(obj.columns):
+            raise ValueError('response_id must be a valid response index')
+        
+        y_name = obj.columns[response_id]
+        Y_mu = obj[y_name].values
+        
+        if plotRef:
+            Y_pred_ref = optimizer.evaluate(X_ref, objective=objective)
+            Y_mu_ref = Y_pred_ref[y_name].values
+            
+    
+    else:
+    
+        if response_id < 0 or response_id >= len(optimizer.target):
+            raise ValueError('response_id must be a valid response index')
+    
+        Y_pred = optimizer.predict(X_test, return_f_inv=not f_transform, PI_range=0.95)
+        y_name = optimizer.y_names[response_id]
+
+        Y_mu = Y_pred[y_name+('_t (pred)' if f_transform else ' (pred)')].values
+        LCB = Y_pred[y_name+('_t lb' if f_transform else ' lb')].values
+        UCB = Y_pred[y_name+('_t ub' if f_transform else ' ub')].values
+            
+        
+        fig.add_trace(go.Scatter(x=np.append(X, X[::-1]), y=np.append(UCB, LCB[::-1]),
+                                fill='toself',
+                                opacity=0.3,
+                                line={'color': obsidian_colors.teal},
+                                showlegend=True,
+                                name='95% Pred Band'),
+                    )
+        
+        if plotRef:
+            Y_pred_ref = optimizer.predict(X_ref, return_f_inv=not f_transform)
+            Y_mu_ref = Y_pred_ref[y_name+('_t (pred)' if f_transform else ' (pred)')].values
+            
     if plotRef:
-        Y_pred_ref = optimizer.predict(X_ref, return_f_inv=not f_transform)
-        Y_mu_ref = Y_pred_ref[y_name+('_t (pred)' if f_transform else ' (pred)')].values
         fig.add_trace(go.Scatter(x=X_ref.iloc[:, feature_id].values, y=Y_mu_ref,
-                                 mode='markers',
-                                 marker=dict(symbol='diamond'),
-                                 line={'color': obsidian_colors.teal},
-                                 name='Reference'),
-                      )
+                                mode='markers',
+                                marker=dict(symbol='diamond'),
+                                line={'color': obsidian_colors.teal},
+                                name='Reference'),
+                        )
+    fig.add_trace(go.Scatter(x=X, y=Y_mu,
+                        mode='lines',
+                        line={'color': obsidian_colors.teal},
+                        name='Mean'),
+            )
+            
     fig.update_xaxes(title_text=X_name)
     fig.update_yaxes(title_text=y_name)
     fig.update_layout(template='ggplot2', title=f'Factor Effect Plot for {X_name}')
@@ -518,15 +543,16 @@ def optim_progress(campaign: Campaign,
     if isinstance(response_ids, int):
         response_ids = (response_ids,)
 
+    for id in response_ids:
+        if id >= len(campaign.out.columns):
+            raise ValueError(f'Response ID {id} is out of range')
+
     # Extract input and output names
     out_names = []
     for id in response_ids:
         out_names.append(campaign.out.columns[id])
     X_names = list(campaign.X.columns)
 
-    for id in response_ids:
-        if id >= len(out_names):
-            raise ValueError(f'Response ID {id} is out of range')
     if isinstance(color_feature_id, int):
         if color_feature_id >= len(campaign.X_space):
             raise ValueError(f'Color feature ID {color_feature_id} is out of range')
@@ -563,9 +589,9 @@ def optim_progress(campaign: Campaign,
         name='Data'))
     
     # Highlight the best samples
-    if hasattr(campaign.optimizer, 'X_best_f_idx'):
-        fig.add_trace(go.Scatter(x=pd.Series(out_exp.iloc[campaign.optimizer.X_best_f_idx, 0]),
-                                 y=pd.Series(out_exp.iloc[campaign.optimizer.X_best_f_idx, 1]),
+    if hasattr(campaign, 'X_best'):
+        fig.add_trace(go.Scatter(x=pd.Series(out_exp.iloc[campaign.X_best.index, 0]),
+                                 y=pd.Series(out_exp.iloc[campaign.X_best.index, 1]),
                                  mode='markers',
                                  marker=dict(symbol='diamond-open', size=14),
                                  line={'color': 'black'},
