@@ -15,7 +15,9 @@ jobs:
       with:
         python-version: '3.10'
     - name: Install requirements
-      run: pip install obsidian-apo[dev]
+      run: |
+        pip install poetry
+        poetry install --extras "dev"
     - name: Run tests and collect coverage
       run: pytest --cov=.
     - name: Upload coverage reports to Codecov with GitHub Action
@@ -32,7 +34,8 @@ jobs:
           python-version: '3.10'
       - name: Install dependencies
         run: |
-          pip install obsidian-apo[docs]
+          pip install poetry
+          poetry install --extras "docs"
       - name: Sphinx build
         run: |
           sphinx-build docs _build
