@@ -17,11 +17,18 @@ COPY . .
 RUN git fetch --tags && \
     git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
 
+# Install CPU-only PyTorch
+RUN poetry source add --priority explicit pytorch_cpu https://download.pytorch.org/whl/cpu
+RUN sed -i 's/^torch = "2\.3\.0"/torch = { version = "2.3.0", source = "pytorch_cpu" }/' pyproject.toml
+
 # Install obsidian
 RUN poetry config virtualenvs.create false && \
     poetry install --extras "app" --no-interaction --no-ansi
 
 RUN poetry add jupyterlab
+
+# Remove install cache to minimize the image size
+RUN poetry cache clear . --all --no-interaction && rm -rf /root/.cache /root/.local/share/pip
 
 # Expose dash port
 EXPOSE 8050
